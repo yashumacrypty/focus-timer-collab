@@ -1,6 +1,9 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User } from '@/types';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/components/ui/use-toast';
+import { useNavigate } from 'react-router-dom';
 
 interface AuthContextType {
   user: User | null;
@@ -14,38 +17,109 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Demo user for mockup
-const DEMO_USER: User = {
-  id: 'u1',
-  name: 'John Doe',
-  email: 'john@example.com',
-};
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(DEMO_USER); // Use DEMO_USER for mockup
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const { toast } = useToast();
 
   useEffect(() => {
-    // Simulate checking auth state
-    const checkAuth = () => {
-      const storedUser = localStorage.getItem('focusAppUser');
-      if (storedUser) {
-        setUser(JSON.parse(storedUser));
+    // Check for active session on component mount
+    const checkSession = async () => {
+      setIsLoading(true);
+      
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Error fetching session:', error);
+          return;
+        }
+
+        if (data?.session) {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', data.session.user.id)
+            .single();
+
+          if (profileData) {
+            setUser({
+              id: data.session.user.id,
+              name: profileData.name || '',
+              email: data.session.user.email || '',
+              avatar: profileData.avatar,
+              motivation: profileData.motivation
+            });
+          } else {
+            setUser({
+              id: data.session.user.id,
+              name: data.session.user.user_metadata?.name || '',
+              email: data.session.user.email || '',
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Session check error:', error);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
-    
-    checkAuth();
+
+    checkSession();
+
+    // Listen for auth state changes
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event);
+      
+      if (event === 'SIGNED_IN' && session) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+
+        if (profileData) {
+          setUser({
+            id: session.user.id,
+            name: profileData.name || '',
+            email: session.user.email || '',
+            avatar: profileData.avatar,
+            motivation: profileData.motivation
+          });
+        } else {
+          setUser({
+            id: session.user.id,
+            name: session.user.user_metadata?.name || '',
+            email: session.user.email || '',
+          });
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string): Promise<boolean> => {
-    // Mock implementation
     setIsLoading(true);
     try {
-      // In a real app, this would call an auth API
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setUser(DEMO_USER);
-      localStorage.setItem('focusAppUser', JSON.stringify(DEMO_USER));
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        toast({
+          title: 'Sign in failed',
+          description: error.message,
+          variant: 'destructive',
+        });
+        return false;
+      }
+
       return true;
     } catch (error) {
       console.error('Sign in error:', error);
@@ -56,36 +130,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
   
   const signInWithGoogle = async (): Promise<boolean> => {
-    // Mock implementation
-    setIsLoading(true);
     try {
-      // In a real app, this would trigger Google OAuth
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setUser(DEMO_USER);
-      localStorage.setItem('focusAppUser', JSON.stringify(DEMO_USER));
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (error) {
+        toast({
+          title: 'Google sign in failed',
+          description: error.message,
+          variant: 'destructive',
+        });
+        return false;
+      }
+      
+      // This won't actually return true as the user is redirected to Google
       return true;
     } catch (error) {
       console.error('Google sign in error:', error);
       return false;
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const signUp = async (email: string, password: string, name: string, motivation: string): Promise<boolean> => {
-    // Mock implementation
     setIsLoading(true);
     try {
-      // In a real app, this would call an auth API
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const newUser = { 
-        ...DEMO_USER, 
-        name, 
+      const { data, error } = await supabase.auth.signUp({
         email,
-        motivation 
-      };
-      setUser(newUser);
-      localStorage.setItem('focusAppUser', JSON.stringify(newUser));
+        password,
+        options: {
+          data: {
+            name,
+            motivation,
+          },
+        },
+      });
+
+      if (error) {
+        toast({
+          title: 'Sign up failed',
+          description: error.message,
+          variant: 'destructive',
+        });
+        return false;
+      }
+
+      // Check if email confirmation is required
+      if (data?.user && !data.user.confirmed_at) {
+        toast({
+          title: 'Check your email',
+          description: 'We sent you a confirmation email. Please check your inbox.',
+        });
+      }
+
       return true;
     } catch (error) {
       console.error('Sign up error:', error);
@@ -95,9 +195,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const signOut = () => {
-    setUser(null);
-    localStorage.removeItem('focusAppUser');
+  const signOut = async () => {
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        toast({
+          title: 'Sign out failed',
+          description: error.message,
+          variant: 'destructive',
+        });
+      } else {
+        setUser(null);
+      }
+    } catch (error) {
+      console.error('Sign out error:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
