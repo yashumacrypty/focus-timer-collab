@@ -209,6 +209,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       date: now.toISOString().split('T')[0],
     };
     
+    // Update tasks with the new time entry
     setTasks(tasks.map(task => {
       if (task.id === taskId) {
         const updatedTimeEntries = [...task.timeEntries, newTimeEntry];
