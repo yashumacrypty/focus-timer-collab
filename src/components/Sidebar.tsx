@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { User, Workspace } from '@/types';
 import { 
   Home, 
@@ -20,10 +21,21 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ workspace, currentUser }) => {
   const [collapsed, setCollapsed] = useState(false);
+  const location = useLocation();
   
   const toggleSidebar = () => {
     setCollapsed(!collapsed);
   };
+  
+  const navItems = [
+    { icon: Home, label: 'Dashboard', path: '/' },
+    { icon: ListChecks, label: 'Tasks', path: '/tasks' },
+    { icon: Clock, label: 'Time Tracking', path: '/time-tracking' },
+    { icon: Calendar, label: 'Sprints', path: '/sprints' },
+    { icon: BarChart3, label: 'Reports', path: '/reports' },
+    { icon: Users, label: 'Team', path: '/team' },
+    { icon: Settings, label: 'Settings', path: '/settings' }
+  ];
   
   return (
     <aside className={`bg-white border-r border-border relative transition-all duration-300 animate-slide-down ${
@@ -60,29 +72,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ workspace, currentUser }) => {
         {/* Navigation */}
         <nav className="flex-1 pt-4 pb-4">
           <ul className="space-y-1 px-2">
-            {[
-              { icon: Home, label: 'Dashboard' },
-              { icon: ListChecks, label: 'Tasks' },
-              { icon: Clock, label: 'Time Tracking' },
-              { icon: Calendar, label: 'Sprints' },
-              { icon: BarChart3, label: 'Reports' },
-              { icon: Users, label: 'Team' },
-              { icon: Settings, label: 'Settings' },
-            ].map((item, i) => (
-              <li key={i}>
-                <a 
-                  href="#" 
-                  className={`flex items-center rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
-                    i === 0 
-                      ? 'bg-accent text-accent-foreground' 
-                      : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                  } ${collapsed ? 'justify-center' : 'justify-start'}`}
-                >
-                  <item.icon size={18} className={collapsed ? '' : 'mr-3'} />
-                  {!collapsed && <span>{item.label}</span>}
-                </a>
-              </li>
-            ))}
+            {navItems.map((item, i) => {
+              const isActive = location.pathname === item.path;
+              return (
+                <li key={i}>
+                  <Link 
+                    to={item.path}
+                    className={`flex items-center rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
+                      isActive 
+                        ? 'bg-accent text-accent-foreground' 
+                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                    } ${collapsed ? 'justify-center' : 'justify-start'}`}
+                  >
+                    <item.icon size={18} className={collapsed ? '' : 'mr-3'} />
+                    {!collapsed && <span>{item.label}</span>}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </nav>
         

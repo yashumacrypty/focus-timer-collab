@@ -1,4 +1,3 @@
-
 export type TaskStatus = 'todo' | 'progress' | 'done';
 
 export interface User {
@@ -6,6 +5,7 @@ export interface User {
   name: string;
   email: string;
   avatar?: string;
+  motivation?: string;
 }
 
 export interface Workspace {
