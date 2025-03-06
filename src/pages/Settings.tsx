@@ -8,7 +8,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
 import { User, Settings as SettingsIcon, Bell, LogOut } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -19,12 +18,14 @@ const Settings = () => {
   
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
+  const [userMotivation, setUserMotivation] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   
   useEffect(() => {
     if (user) {
       setUserName(user.name || '');
       setUserEmail(user.email || '');
+      setUserMotivation(user.motivation || '');
     }
   }, [user]);
   
@@ -38,7 +39,10 @@ const Settings = () => {
       
       const { error } = await supabase
         .from('profiles')
-        .update({ name: userName })
+        .update({ 
+          name: userName,
+          motivation: userMotivation
+        })
         .eq('id', user.id);
       
       if (error) {
@@ -105,6 +109,16 @@ const Settings = () => {
                       disabled
                     />
                   </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="motivation">Your Motivation</Label>
+                  <Input 
+                    id="motivation" 
+                    value={userMotivation}
+                    onChange={(e) => setUserMotivation(e.target.value)}
+                    placeholder="What motivates you to stay productive?"
+                  />
                 </div>
                 
                 <Separator />
