@@ -1,8 +1,7 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout } from '@/components/Layout';
 import { useAuth } from '@/context/AuthContext';
-import { useWorkspace } from '@/context/WorkspaceContext';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,25 +9,60 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { User, Settings as SettingsIcon, Bell, Shield, LogOut } from 'lucide-react';
+import { User, Settings as SettingsIcon, Bell, LogOut } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 const Settings = () => {
   const { user, signOut } = useAuth();
-  const { workspace } = useWorkspace();
   const { toast } = useToast();
   
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
+  
+  useEffect(() => {
+    if (user) {
+      setUserName(user.name || '');
+      setUserEmail(user.email || '');
+    }
+  }, [user]);
+  
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast({
-      title: "Settings saved",
-      description: "Your changes have been successfully saved.",
-    });
+    
+    if (!user) return;
+    
+    try {
+      setIsUpdating(true);
+      
+      const { error } = await supabase
+        .from('profiles')
+        .update({ name: userName })
+        .eq('id', user.id);
+      
+      if (error) {
+        throw error;
+      }
+      
+      toast({
+        title: "Settings saved",
+        description: "Your changes have been successfully saved.",
+      });
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      toast({
+        title: "Error saving settings",
+        description: "There was a problem saving your changes.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsUpdating(false);
+    }
   };
   
   const handleLogout = () => {
     signOut();
-    window.location.href = '/auth';
   };
   
   return (
@@ -36,7 +70,7 @@ const Settings = () => {
       <div className="mb-6 animate-slide-down">
         <h1 className="text-2xl font-semibold mb-1">Settings</h1>
         <p className="text-muted-foreground">
-          Manage your account and workspace preferences
+          Manage your account preferences
         </p>
       </div>
       
@@ -57,11 +91,19 @@ const Settings = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="name">Full Name</Label>
-                    <Input id="name" defaultValue={user?.name} />
+                    <Input 
+                      id="name" 
+                      value={userName}
+                      onChange={(e) => setUserName(e.target.value)}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
-                    <Input id="email" defaultValue={user?.email} />
+                    <Input 
+                      id="email" 
+                      value={userEmail}
+                      disabled
+                    />
                   </div>
                 </div>
                 
@@ -108,75 +150,12 @@ const Settings = () => {
                 <LogOut size={16} className="mr-2" />
                 Logout
               </Button>
-              <Button type="submit" onClick={handleSaveSettings}>
-                Save Changes
-              </Button>
-            </CardFooter>
-          </Card>
-        </div>
-        
-        <div className="md:col-span-3">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <SettingsIcon size={18} className="mr-2" />
-                Workspace Settings
-              </CardTitle>
-              <CardDescription>
-                Configure {workspace.name} workspace settings
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="workspace-name">Workspace Name</Label>
-                  <Input id="workspace-name" defaultValue={workspace.name} />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="workspace-description">Description</Label>
-                  <Textarea 
-                    id="workspace-description" 
-                    defaultValue={workspace.description}
-                    rows={3}
-                  />
-                </div>
-                
-                <Separator />
-                
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label className="text-base">
-                        <Shield size={16} className="inline mr-2" />
-                        Permissions
-                      </Label>
-                      <p className="text-sm text-muted-foreground">
-                        Control what members can do in your workspace
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="members-can-create-tasks" className="flex-1">
-                        Members can create tasks
-                      </Label>
-                      <Switch id="members-can-create-tasks" defaultChecked />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="members-can-invite" className="flex-1">
-                        Members can invite others
-                      </Label>
-                      <Switch id="members-can-invite" />
-                    </div>
-                  </div>
-                </div>
-              </form>
-            </CardContent>
-            <CardFooter>
-              <Button type="submit" onClick={handleSaveSettings} className="ml-auto">
-                Save Workspace Settings
+              <Button 
+                type="submit" 
+                onClick={handleSaveSettings}
+                disabled={isUpdating}
+              >
+                {isUpdating ? 'Saving...' : 'Save Changes'}
               </Button>
             </CardFooter>
           </Card>

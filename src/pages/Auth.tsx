@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Loader } from 'lucide-react';
 
 const Auth = () => {
-  const { signIn, signUp, signInWithGoogle, isLoading } = useAuth();
+  const { signIn, signUp, signInWithGoogle, isLoading, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   
@@ -19,9 +19,19 @@ const Auth = () => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [motivation, setMotivation] = useState('');
+  const [localLoading, setLocalLoading] = useState(false);
+  
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/');
+    }
+  }, [isAuthenticated, navigate]);
   
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (localLoading) return;
+    
     if (!email || !password) {
       toast({
         title: 'Missing fields',
@@ -31,20 +41,34 @@ const Auth = () => {
       return;
     }
     
-    const success = await signIn(email, password);
-    if (success) {
-      navigate('/');
-    } else {
+    try {
+      setLocalLoading(true);
+      const success = await signIn(email, password);
+      if (success) {
+        navigate('/');
+      } else {
+        toast({
+          title: 'Authentication failed',
+          description: 'Please check your credentials and try again',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Login error:', error);
       toast({
-        title: 'Authentication failed',
-        description: 'Please check your credentials and try again',
+        title: 'Authentication error',
+        description: 'An unexpected error occurred',
         variant: 'destructive',
       });
+    } finally {
+      setLocalLoading(false);
     }
   };
   
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (localLoading) return;
+    
     if (!email || !password || !name) {
       toast({
         title: 'Missing fields',
@@ -54,30 +78,56 @@ const Auth = () => {
       return;
     }
     
-    const success = await signUp(email, password, name, motivation);
-    if (success) {
-      navigate('/onboarding');
-    } else {
+    try {
+      setLocalLoading(true);
+      const success = await signUp(email, password, name, motivation);
+      if (success) {
+        navigate('/onboarding');
+      } else {
+        toast({
+          title: 'Registration failed',
+          description: 'Unable to create your account. Please try again.',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Signup error:', error);
       toast({
-        title: 'Registration failed',
-        description: 'Unable to create your account. Please try again.',
+        title: 'Registration error',
+        description: 'An unexpected error occurred',
         variant: 'destructive',
       });
+    } finally {
+      setLocalLoading(false);
     }
   };
   
   const handleGoogleAuth = async () => {
-    const success = await signInWithGoogle();
-    if (success) {
-      navigate('/');
-    } else {
+    if (localLoading) return;
+    
+    try {
+      setLocalLoading(true);
+      await signInWithGoogle();
+      // Note: No need to handle redirect here as it's done by Supabase
+    } catch (error) {
+      console.error('Google auth error:', error);
       toast({
         title: 'Google Authentication failed',
         description: 'Unable to sign in with Google. Please try again.',
         variant: 'destructive',
       });
+      setLocalLoading(false);
     }
   };
+  
+  // Don't show auth page if loading initial session
+  if (isLoading && !localLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
   
   return (
     <div className="flex items-center justify-center min-h-screen bg-background">
@@ -123,8 +173,8 @@ const Auth = () => {
                       required
                     />
                   </div>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? (
+                  <Button type="submit" className="w-full" disabled={localLoading}>
+                    {localLoading ? (
                       <>
                         <Loader size={16} className="mr-2 animate-spin" />
                         Signing in...
@@ -151,7 +201,7 @@ const Auth = () => {
                     variant="outline"
                     className="w-full mt-4"
                     onClick={handleGoogleAuth}
-                    disabled={isLoading}
+                    disabled={localLoading}
                   >
                     <svg viewBox="0 0 24 24" className="h-5 w-5 mr-2">
                       <path
@@ -229,8 +279,8 @@ const Auth = () => {
                       onChange={(e) => setMotivation(e.target.value)}
                     />
                   </div>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? (
+                  <Button type="submit" className="w-full" disabled={localLoading}>
+                    {localLoading ? (
                       <>
                         <Loader size={16} className="mr-2 animate-spin" />
                         Creating account...
@@ -257,7 +307,7 @@ const Auth = () => {
                     variant="outline"
                     className="w-full mt-4"
                     onClick={handleGoogleAuth}
-                    disabled={isLoading}
+                    disabled={localLoading}
                   >
                     <svg viewBox="0 0 24 24" className="h-5 w-5 mr-2">
                       <path

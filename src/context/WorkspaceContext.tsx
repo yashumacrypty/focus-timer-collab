@@ -1,129 +1,145 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Task, Workspace, Sprint, User, TaskStatus, TimeEntry } from '@/types';
-
-// Demo data to simulate API responses
-// In a real app, this would come from Supabase or another backend
-const DEMO_USERS: User[] = [
-  { id: 'u1', name: 'John Doe', email: 'john@example.com' },
-  { id: 'u2', name: 'Jane Smith', email: 'jane@example.com' },
-  { id: 'u3', name: 'Alex Johnson', email: 'alex@example.com' },
-];
-
-const DEMO_WORKSPACE: Workspace = {
-  id: 'w1',
-  name: 'Product Team',
-  description: 'Main workspace for product development',
-  createdAt: new Date('2023-01-01'),
-  ownerId: 'u1',
-  members: DEMO_USERS,
-};
-
-const CURRENT_SPRINT: Sprint = {
-  id: 's1',
-  name: 'Sprint 1',
-  startDate: new Date(new Date().setDate(new Date().getDate() - 2)), // Started 2 days ago
-  endDate: new Date(new Date().setDate(new Date().getDate() + 4)), // Ends in 4 days
-  workspaceId: 'w1',
-  tasks: [],
-  isActive: true,
-};
-
-const DEMO_TASKS: Task[] = [
-  {
-    id: 't1',
-    title: 'Implement user authentication',
-    description: 'Add login and registration functionality',
-    status: 'progress',
-    reporterId: 'u1',
-    doerId: 'u2',
-    estimatedTime: 14400, // 4 hours in seconds
-    sprintId: 's1',
-    workspaceId: 'w1',
-    createdAt: new Date('2023-01-05'),
-    updatedAt: new Date('2023-01-06'),
-    timeEntries: [
-      {
-        id: 'e1',
-        taskId: 't1',
-        startTime: new Date(new Date().setHours(new Date().getHours() - 3)),
-        endTime: new Date(new Date().setHours(new Date().getHours() - 1)),
-        duration: 7200, // 2 hours
-        date: new Date().toISOString().split('T')[0],
-      }
-    ],
-    totalTimeSpent: 7200,
-  },
-  {
-    id: 't2',
-    title: 'Design landing page',
-    description: 'Create mockups for the new landing page',
-    status: 'todo',
-    reporterId: 'u1',
-    doerId: 'u3',
-    estimatedTime: 18000, // 5 hours in seconds
-    sprintId: 's1',
-    workspaceId: 'w1',
-    createdAt: new Date('2023-01-06'),
-    updatedAt: new Date('2023-01-06'),
-    timeEntries: [],
-    totalTimeSpent: 0,
-  },
-  {
-    id: 't3',
-    title: 'Fix navigation bug',
-    description: 'Address the issue with dropdown menu',
-    status: 'done',
-    reporterId: 'u2',
-    doerId: 'u1',
-    estimatedTime: 3600, // 1 hour in seconds
-    sprintId: 's1',
-    workspaceId: 'w1',
-    createdAt: new Date('2023-01-03'),
-    updatedAt: new Date('2023-01-04'),
-    timeEntries: [
-      {
-        id: 'e2',
-        taskId: 't3',
-        startTime: new Date(new Date().setDate(new Date().getDate() - 1)),
-        endTime: new Date(new Date().setDate(new Date().getDate() - 1)),
-        duration: 4500, // 1 hour 15 minutes
-        date: new Date(new Date().setDate(new Date().getDate() - 1)).toISOString().split('T')[0],
-      }
-    ],
-    totalTimeSpent: 4500,
-  },
-];
-
-// Update the tasks in the sprint
-CURRENT_SPRINT.tasks = DEMO_TASKS;
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/components/ui/use-toast';
 
 interface WorkspaceContextType {
-  currentUser: User;
+  currentUser: User | null;
   workspace: Workspace;
-  currentSprint: Sprint;
+  currentSprint: Sprint | null;
+  sprints: Sprint[];
   tasks: Task[];
-  createTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'timeEntries' | 'totalTimeSpent'>) => void;
-  updateTask: (taskId: string, updates: Partial<Task>) => void;
-  updateTaskStatus: (taskId: string, status: TaskStatus) => void;
+  createTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'timeEntries' | 'totalTimeSpent'>) => Promise<void>;
+  updateTask: (taskId: string, updates: Partial<Task>) => Promise<void>;
+  updateTaskStatus: (taskId: string, status: TaskStatus) => Promise<void>;
   startTimeTracking: (taskId: string) => void;
   stopTimeTracking: (taskId: string) => void;
   currentlyTracking: string | null;
   trackingStartTime: Date | null;
   elapsedTime: number;
+  createSprint: (sprint: Omit<Sprint, 'id' | 'tasks'>) => Promise<void>;
 }
+
+const DEFAULT_WORKSPACE: Workspace = {
+  id: 'default',
+  name: 'My Workspace',
+  description: 'Personal workspace',
+  createdAt: new Date(),
+  ownerId: '',
+  members: [],
+};
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser] = useState<User>(DEMO_USERS[0]); // First user is current user
-  const [workspace] = useState<Workspace>(DEMO_WORKSPACE);
-  const [currentSprint] = useState<Sprint>(CURRENT_SPRINT);
-  const [tasks, setTasks] = useState<Task[]>(DEMO_TASKS);
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  const [workspace, setWorkspace] = useState<Workspace>(DEFAULT_WORKSPACE);
+  const [currentSprint, setCurrentSprint] = useState<Sprint | null>(null);
+  const [sprints, setSprints] = useState<Sprint[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   
   const [currentlyTracking, setCurrentlyTracking] = useState<string | null>(null);
   const [trackingStartTime, setTrackingStartTime] = useState<Date | null>(null);
   const [elapsedTime, setElapsedTime] = useState<number>(0);
+  
+  // Initialize and load data when user changes
+  useEffect(() => {
+    if (!user) return;
+    
+    // Set basic user as current user and as a member of the workspace
+    const currentUserObj: User = {
+      id: user.id,
+      name: user.name || '',
+      email: user.email || '',
+      avatar: user.avatar,
+    };
+    
+    // Update workspace with the current user
+    setWorkspace(prev => ({
+      ...prev,
+      ownerId: user.id,
+      members: [currentUserObj]
+    }));
+    
+    // Load user's sprints and tasks
+    const loadUserData = async () => {
+      try {
+        // Load sprints
+        const { data: sprintsData, error: sprintsError } = await supabase
+          .from('sprints')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('start_date', { ascending: false });
+        
+        if (sprintsError) throw sprintsError;
+        
+        if (sprintsData && sprintsData.length > 0) {
+          const formattedSprints: Sprint[] = sprintsData.map(sprint => ({
+            id: sprint.id,
+            name: sprint.name,
+            startDate: new Date(sprint.start_date),
+            endDate: new Date(sprint.end_date),
+            workspaceId: workspace.id,
+            isActive: sprint.is_active,
+            tasks: []
+          }));
+          
+          setSprints(formattedSprints);
+          
+          // Set the active sprint as current
+          const activeSprint = formattedSprints.find(s => s.isActive);
+          if (activeSprint) {
+            setCurrentSprint(activeSprint);
+          } else if (formattedSprints.length > 0) {
+            // If no active sprint, use the most recent one
+            setCurrentSprint(formattedSprints[0]);
+          }
+        }
+        
+        // Load tasks
+        const { data: tasksData, error: tasksError } = await supabase
+          .from('tasks')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+        
+        if (tasksError) throw tasksError;
+        
+        if (tasksData) {
+          const formattedTasks: Task[] = tasksData.map(task => ({
+            id: task.id,
+            title: task.title,
+            description: task.description || '',
+            status: task.status as TaskStatus,
+            reporterId: task.reporter_id,
+            doerId: task.doer_id,
+            estimatedTime: task.estimated_time,
+            sprintId: task.sprint_id,
+            workspaceId: workspace.id,
+            createdAt: new Date(task.created_at),
+            updatedAt: new Date(task.updated_at),
+            timeEntries: [],
+            totalTimeSpent: 0
+          }));
+          
+          setTasks(formattedTasks);
+        }
+      } catch (error) {
+        console.error('Error loading user data:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load your data',
+          variant: 'destructive'
+        });
+      }
+    };
+    
+    loadUserData();
+  }, [user, toast]);
   
   // Timer effect for tracking elapsed time
   useEffect(() => {
@@ -144,32 +160,157 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
   }, [currentlyTracking, trackingStartTime]);
   
-  // Create a new task
-  const createTask = (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'timeEntries' | 'totalTimeSpent'>) => {
-    const newTask: Task = {
-      ...task,
-      id: `t${tasks.length + 1}`,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      timeEntries: [],
-      totalTimeSpent: 0,
-    };
+  // Create a new sprint
+  const createSprint = async (sprint: Omit<Sprint, 'id' | 'tasks'>) => {
+    if (!user) return;
     
-    setTasks([...tasks, newTask]);
+    try {
+      const { data, error } = await supabase
+        .from('sprints')
+        .insert({
+          name: sprint.name,
+          start_date: sprint.startDate.toISOString(),
+          end_date: sprint.endDate.toISOString(),
+          workspace_id: sprint.workspaceId,
+          is_active: sprint.isActive,
+          user_id: user.id
+        })
+        .select();
+      
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        const newSprint: Sprint = {
+          id: data[0].id,
+          name: data[0].name,
+          startDate: new Date(data[0].start_date),
+          endDate: new Date(data[0].end_date),
+          workspaceId: data[0].workspace_id,
+          isActive: data[0].is_active,
+          tasks: []
+        };
+        
+        setSprints(prev => [newSprint, ...prev]);
+        
+        if (newSprint.isActive) {
+          setCurrentSprint(newSprint);
+        }
+        
+        toast({
+          title: 'Sprint created',
+          description: `Sprint "${newSprint.name}" has been created.`,
+        });
+      }
+    } catch (error) {
+      console.error('Error creating sprint:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to create sprint',
+        variant: 'destructive'
+      });
+    }
+  };
+  
+  // Create a new task
+  const createTask = async (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'timeEntries' | 'totalTimeSpent'>) => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert({
+          title: task.title,
+          description: task.description,
+          status: task.status,
+          reporter_id: user.id,
+          doer_id: task.doerId,
+          estimated_time: task.estimatedTime,
+          sprint_id: task.sprintId,
+          workspace_id: task.workspaceId,
+          user_id: user.id
+        })
+        .select();
+      
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        const newTask: Task = {
+          id: data[0].id,
+          title: data[0].title,
+          description: data[0].description || '',
+          status: data[0].status as TaskStatus,
+          reporterId: data[0].reporter_id,
+          doerId: data[0].doer_id,
+          estimatedTime: data[0].estimated_time,
+          sprintId: data[0].sprint_id,
+          workspaceId: data[0].workspace_id,
+          createdAt: new Date(data[0].created_at),
+          updatedAt: new Date(data[0].updated_at),
+          timeEntries: [],
+          totalTimeSpent: 0
+        };
+        
+        setTasks(prev => [newTask, ...prev]);
+        
+        toast({
+          title: 'Task created',
+          description: `Task "${newTask.title}" has been created.`,
+        });
+      }
+    } catch (error) {
+      console.error('Error creating task:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to create task',
+        variant: 'destructive'
+      });
+    }
   };
   
   // Update an existing task
-  const updateTask = (taskId: string, updates: Partial<Task>) => {
-    setTasks(tasks.map(task => 
-      task.id === taskId 
-        ? { ...task, ...updates, updatedAt: new Date() } 
-        : task
-    ));
+  const updateTask = async (taskId: string, updates: Partial<Task>) => {
+    try {
+      // Create an object with only the database field names
+      const dbUpdates: any = {};
+      
+      if (updates.title !== undefined) dbUpdates.title = updates.title;
+      if (updates.description !== undefined) dbUpdates.description = updates.description;
+      if (updates.status !== undefined) dbUpdates.status = updates.status;
+      if (updates.doerId !== undefined) dbUpdates.doer_id = updates.doerId;
+      if (updates.estimatedTime !== undefined) dbUpdates.estimated_time = updates.estimatedTime;
+      if (updates.sprintId !== undefined) dbUpdates.sprint_id = updates.sprintId;
+      
+      const { error } = await supabase
+        .from('tasks')
+        .update(dbUpdates)
+        .eq('id', taskId);
+      
+      if (error) throw error;
+      
+      // Update local state
+      setTasks(prev => prev.map(task => 
+        task.id === taskId 
+          ? { ...task, ...updates, updatedAt: new Date() } 
+          : task
+      ));
+      
+      toast({
+        title: 'Task updated',
+        description: 'Task has been updated successfully.',
+      });
+    } catch (error) {
+      console.error('Error updating task:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to update task',
+        variant: 'destructive'
+      });
+    }
   };
   
   // Update task status
-  const updateTaskStatus = (taskId: string, status: TaskStatus) => {
-    updateTask(taskId, { status });
+  const updateTaskStatus = async (taskId: string, status: TaskStatus) => {
+    await updateTask(taskId, { status });
   };
   
   // Start time tracking for a task
@@ -233,9 +374,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   return (
     <WorkspaceContext.Provider
       value={{
-        currentUser,
+        currentUser: user,
         workspace,
         currentSprint,
+        sprints,
         tasks,
         createTask,
         updateTask,
@@ -245,6 +387,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         currentlyTracking,
         trackingStartTime,
         elapsedTime,
+        createSprint
       }}
     >
       {children}
